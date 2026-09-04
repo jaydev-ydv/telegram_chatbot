@@ -351,7 +351,8 @@ def ask_ai(user_id, prompt):
         print("Sending request to Gemini...")
 
         response = client.models.generate_content(
-
+            model="gemini-2.5-flash",
+            model="gemini-2.5-flash-lite"
             model="gemini-3.5-flash-lite",
 
             contents=f"""
