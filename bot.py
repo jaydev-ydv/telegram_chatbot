@@ -352,7 +352,7 @@ def ask_ai(user_id, prompt):
 
         response = client.models.generate_content(
 
-            model="gemini-2.5-flash-lite",
+            model="gemini-3.5-flash-lite",
 
             contents=f"""
 {AI_INSTRUCTIONS}
@@ -534,8 +534,7 @@ async def baate(
 
         await update.message.reply_text(
             "Haan bolo na 😄\n\n"
-            "Example:\n"
-            "/baate What is Java?"
+            
         )
 
         return
