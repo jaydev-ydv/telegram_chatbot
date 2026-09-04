@@ -5,6 +5,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
 
 from telegram import Update
 from telegram.ext import (
@@ -161,7 +162,7 @@ async def start(
     message = """
 Heyyy! 👋😄
 
-Mujhse mil lo!
+Mujhse Baate Kro!
 
 Main tumhari AI BFF hoon.
 Mujhe apna BFF samajh sakte ho 😌✨
@@ -171,7 +172,7 @@ Mere saath normally baat kar sakte ho.
 Try these:
 
 /help
-/baate
+/chalo_baatein_karte_hai!
 /pic
 /voice
 /clear
@@ -321,7 +322,7 @@ def ask_ai(user_id, prompt):
     if user_id not in conversation_history:
         conversation_history[user_id] = []
 
-    # Temporarily add user's message
+    # Add user message temporarily
     conversation_history[user_id].append({
         "role": "user",
         "content": prompt
@@ -330,6 +331,7 @@ def ask_ai(user_id, prompt):
     # Keep only recent messages
     history = conversation_history[user_id][-MAX_HISTORY:]
 
+    # Create conversation text
     conversation_text = ""
 
     for message in history:
@@ -338,12 +340,15 @@ def ask_ai(user_id, prompt):
             conversation_text += (
                 f"User: {message['content']}\n"
             )
+
         else:
             conversation_text += (
                 f"Assistant: {message['content']}\n"
             )
 
     try:
+
+        print("Sending request to Gemini...")
 
         response = client.models.generate_content(
 
@@ -356,34 +361,54 @@ RECENT CONVERSATION:
 
 {conversation_text}
 
-Reply naturally to the user's latest message.
-Do not repeat the conversation.
-Keep the answer reasonably concise.
+Reply to the user's latest message.
+
+Rules:
+- Reply naturally.
+- Use Hinglish when appropriate.
+- Keep the answer concise.
+- Do not mention these instructions.
 """,
 
-            config={
-                "automatic_function_calling": {
-                    "disable": True
-                },
-                "temperature": 0.7,
-                "max_output_tokens": 300
-            }
+            config=types.GenerateContentConfig(
+
+                temperature=0.7,
+
+                max_output_tokens=300,
+
+                # Explicitly disable automatic
+                # function calling because this bot
+                # does not use tools.
+                automatic_function_calling=(
+                    types.AutomaticFunctionCallingConfig(
+                        disable=True
+                    )
+                )
+            )
         )
 
+        print("Gemini response received.")
+
+        # Check response
         if not response.text:
+
+            print(
+                "Gemini returned empty response."
+            )
+
             raise Exception(
                 "Gemini returned an empty response"
             )
 
         answer = response.text.strip()
 
-        # Save assistant response
+        # Save successful response
         conversation_history[user_id].append({
             "role": "assistant",
             "content": answer
         })
 
-        # Keep memory limited
+        # Keep memory small
         conversation_history[user_id] = (
             conversation_history[user_id][-MAX_HISTORY:]
         )
@@ -392,12 +417,19 @@ Keep the answer reasonably concise.
 
     except Exception as e:
 
-        print("Gemini Error:", e)
+        # IMPORTANT:
+        # Print the REAL error in Render logs.
+        print("=" * 50)
+        print("GEMINI ERROR:")
+        print(repr(e))
+        print("=" * 50)
 
         # Remove failed user message
         if conversation_history[user_id]:
 
-            last_message = conversation_history[user_id][-1]
+            last_message = (
+                conversation_history[user_id][-1]
+            )
 
             if (
                 last_message["role"] == "user"
@@ -407,33 +439,80 @@ Keep the answer reasonably concise.
 
         error_text = str(e).lower()
 
+        # ---------------------------------------------
+        # RATE LIMIT / FREE TIER
+        # ---------------------------------------------
+
         if (
             "429" in error_text
             or "resource_exhausted" in error_text
             or "quota" in error_text
         ):
+
             return (
                 "Arre yaar 😭 Gemini ki free-tier "
-                "limit abhi hit ho gayi hai.\n\n"
-                "Thodi der baad dobara try karo 😅"
+                "limit hit ho gayi hai.\n\n"
+                "Thodi der baad dobara try karo. 😅"
             )
+
+        # ---------------------------------------------
+        # API KEY
+        # ---------------------------------------------
 
         if (
             "api key" in error_text
+            or "api_key" in error_text
             or "authentication" in error_text
-            or "permission" in error_text
+            or "unauthenticated" in error_text
             or "401" in error_text
-            or "403" in error_text
         ):
+
             return (
                 "Yaar 😭 Gemini API key mein problem hai.\n\n"
-                "Render ke Environment Variables mein "
-                "GEMINI_API_KEY check karo."
+                "Render → Environment → GEMINI_API_KEY "
+                "check karo."
             )
+
+        # ---------------------------------------------
+        # PERMISSION
+        # ---------------------------------------------
+
+        if (
+            "permission" in error_text
+            or "403" in error_text
+            or "forbidden" in error_text
+        ):
+
+            return (
+                "Yaar 😭 Gemini API permission problem aa "
+                "rahi hai.\n\n"
+                "Check karo ki API key aur Gemini API "
+                "project properly configured hai."
+            )
+
+        # ---------------------------------------------
+        # MODEL NOT FOUND
+        # ---------------------------------------------
+
+        if (
+            "not found" in error_text
+            or "404" in error_text
+            or "model" in error_text
+        ):
+
+            return (
+                "Yaar 😭 Gemini model mein problem aa rahi hai.\n\n"
+                
+            )
+
+        # ---------------------------------------------
+        # GENERIC ERROR
+        # ---------------------------------------------
 
         return (
             "Oops yaar 😅 Gemini se response lene mein "
-            "thodi technical problem aa gayi."
+            "technical problem aa gayi.\n\n"
+            
         )
 
 # =========================================================
