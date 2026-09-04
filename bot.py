@@ -316,57 +316,32 @@ async def voice(
 # 11. ASK GEMINI
 # =========================================================
 
-def ask_ai(
-    user_id,
-    prompt
-):
+def ask_ai(user_id, prompt):
 
-    # Create memory for new user
     if user_id not in conversation_history:
         conversation_history[user_id] = []
 
-    # -----------------------------------------------------
-    # Create temporary history
-    # -----------------------------------------------------
-
-    current_history = conversation_history[user_id]
-
-    # Add current user message temporarily
-    current_history.append({
+    # Temporarily add user's message
+    conversation_history[user_id].append({
         "role": "user",
         "content": prompt
     })
 
-    # -----------------------------------------------------
     # Keep only recent messages
-    # -----------------------------------------------------
-
-    history = current_history[-MAX_HISTORY:]
-
-    # -----------------------------------------------------
-    # Convert conversation into text
-    # -----------------------------------------------------
+    history = conversation_history[user_id][-MAX_HISTORY:]
 
     conversation_text = ""
 
     for message in history:
 
-        role = message["role"]
-        content = message["content"]
-
-        if role == "user":
+        if message["role"] == "user":
             conversation_text += (
-                f"User: {content}\n"
+                f"User: {message['content']}\n"
             )
-
         else:
             conversation_text += (
-                f"Assistant: {content}\n"
+                f"Assistant: {message['content']}\n"
             )
-
-    # -----------------------------------------------------
-    # Send request to Gemini
-    # -----------------------------------------------------
 
     try:
 
@@ -384,28 +359,31 @@ RECENT CONVERSATION:
 Reply naturally to the user's latest message.
 Do not repeat the conversation.
 Keep the answer reasonably concise.
-"""
+""",
+
+            config={
+                "automatic_function_calling": {
+                    "disable": True
+                },
+                "temperature": 0.7,
+                "max_output_tokens": 300
+            }
         )
 
-        # Check response
         if not response.text:
-
             raise Exception(
                 "Gemini returned an empty response"
             )
 
         answer = response.text.strip()
 
-        # -------------------------------------------------
-        # Save successful conversation
-        # -------------------------------------------------
-
+        # Save assistant response
         conversation_history[user_id].append({
             "role": "assistant",
             "content": answer
         })
 
-        # Keep memory small
+        # Keep memory limited
         conversation_history[user_id] = (
             conversation_history[user_id][-MAX_HISTORY:]
         )
@@ -414,49 +392,31 @@ Keep the answer reasonably concise.
 
     except Exception as e:
 
-        print(
-            "Gemini Error:",
-            e
-        )
+        print("Gemini Error:", e)
 
-        # -------------------------------------------------
         # Remove failed user message
-        # -------------------------------------------------
-
         if conversation_history[user_id]:
 
-            last_message = (
-                conversation_history[user_id][-1]
-            )
+            last_message = conversation_history[user_id][-1]
 
             if (
                 last_message["role"] == "user"
                 and last_message["content"] == prompt
             ):
-
                 conversation_history[user_id].pop()
 
         error_text = str(e).lower()
-
-        # -------------------------------------------------
-        # Rate limit
-        # -------------------------------------------------
 
         if (
             "429" in error_text
             or "resource_exhausted" in error_text
             or "quota" in error_text
         ):
-
             return (
                 "Arre yaar 😭 Gemini ki free-tier "
                 "limit abhi hit ho gayi hai.\n\n"
                 "Thodi der baad dobara try karo 😅"
             )
-
-        # -------------------------------------------------
-        # API key problem
-        # -------------------------------------------------
 
         if (
             "api key" in error_text
@@ -465,23 +425,16 @@ Keep the answer reasonably concise.
             or "401" in error_text
             or "403" in error_text
         ):
-
             return (
-                "Yaar 😭 Gemini API key mein "
-                "problem aa rahi hai.\n\n"
+                "Yaar 😭 Gemini API key mein problem hai.\n\n"
                 "Render ke Environment Variables mein "
                 "GEMINI_API_KEY check karo."
             )
-
-        # -------------------------------------------------
-        # Generic error
-        # -------------------------------------------------
 
         return (
             "Oops yaar 😅 Gemini se response lene mein "
             "thodi technical problem aa gayi."
         )
-
 
 # =========================================================
 # 12. /BAATE COMMAND
