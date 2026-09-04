@@ -1,4 +1,7 @@
+
 import os
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from dotenv import load_dotenv
 from google import genai
@@ -24,17 +27,17 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 
 # =========================================================
-# 2. CHECK API KEYS
+# 2. CHECK ENVIRONMENT VARIABLES
 # =========================================================
 
 if not TELEGRAM_BOT_TOKEN:
     raise ValueError(
-        "TELEGRAM_BOT_TOKEN is missing in .env file"
+        "TELEGRAM_BOT_TOKEN is missing in environment variables"
     )
 
 if not GEMINI_API_KEY:
     raise ValueError(
-        "GEMINI_API_KEY is missing in .env file"
+        "GEMINI_API_KEY is missing in environment variables"
     )
 
 
@@ -89,12 +92,59 @@ IMPORTANT:
 
 conversation_history = {}
 
-# Only keep recent messages to reduce API usage
+# Keep only the latest 6 messages
+# This helps reduce unnecessary API usage.
 MAX_HISTORY = 6
 
 
 # =========================================================
-# 6. START COMMAND
+# 6. RENDER HEALTH SERVER
+# =========================================================
+
+class HealthHandler(BaseHTTPRequestHandler):
+
+    def do_GET(self):
+
+        self.send_response(200)
+
+        self.send_header(
+            "Content-type",
+            "text/plain"
+        )
+
+        self.end_headers()
+
+        self.wfile.write(
+            b"Telegram AI Bot is running!"
+        )
+
+    def log_message(self, format, *args):
+        # Disable unnecessary HTTP logs
+        return
+
+
+def run_web_server():
+
+    # Render provides PORT automatically.
+    # 10000 is the default fallback.
+    port = int(
+        os.environ.get("PORT", 10000)
+    )
+
+    server = HTTPServer(
+        ("0.0.0.0", port),
+        HealthHandler
+    )
+
+    print(
+        f"Health server running on 0.0.0.0:{port}"
+    )
+
+    server.serve_forever()
+
+
+# =========================================================
+# 7. START COMMAND
 # =========================================================
 
 async def start(
@@ -104,6 +154,7 @@ async def start(
 
     user_id = update.effective_user.id
 
+    # Create memory for user
     if user_id not in conversation_history:
         conversation_history[user_id] = []
 
@@ -112,12 +163,12 @@ Heyyy! 👋😄
 
 Mujhse mil lo!
 
-Main tumhara BFF hoon.
+Main tumhari AI BFF hoon.
 Mujhe apna BFF samajh sakte ho 😌✨
 
 Mere saath normally baat kar sakte ho.
 
-Try these commands:
+Try these:
 
 /help
 /baate
@@ -128,11 +179,13 @@ Try these commands:
 Chalo, baatein shuru karein? 😏
 """
 
-    await update.message.reply_text(message)
+    await update.message.reply_text(
+        message
+    )
 
 
 # =========================================================
-# 7. HELP COMMAND
+# 8. HELP COMMAND
 # =========================================================
 
 async def help_command(
@@ -150,24 +203,36 @@ async def help_command(
 
 🤖 AI CHAT
 
-/start — mujhse baatein shuru karo 💬
+/baate — mujhse baatein shuru karo 💬
 
+Example:
+
+/baate What is Java?
+
+/baate Explain binary search
+
+/baate Mujhe ek DSA question do
 
 ✨ NORMAL CHAT
 
 Tum mujhe directly message bhi kar sakte ho.
 
+Example:
+
+"Yaar mujhe Java inheritance samjha de"
 
 🧹 MEMORY
 
 /clear — current conversation memory clear karo
 """
 
-    await update.message.reply_text(message)
+    await update.message.reply_text(
+        message
+    )
 
 
 # =========================================================
-# 8. PIC COMMAND
+# 9. PIC COMMAND
 # =========================================================
 
 async def pic(
@@ -179,7 +244,10 @@ async def pic(
 
     try:
 
-        with open(photo_path, "rb") as photo:
+        with open(
+            photo_path,
+            "rb"
+        ) as photo:
 
             await update.message.reply_photo(
                 photo=photo,
@@ -194,7 +262,10 @@ async def pic(
 
     except Exception as e:
 
-        print("Photo Error:", e)
+        print(
+            "Photo Error:",
+            e
+        )
 
         await update.message.reply_text(
             "Oops 😅 photo send karte time problem aa gayi."
@@ -202,7 +273,7 @@ async def pic(
 
 
 # =========================================================
-# 9. VOICE COMMAND
+# 10. VOICE COMMAND
 # =========================================================
 
 async def voice(
@@ -210,11 +281,14 @@ async def voice(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    voice_path = "media/voice.mp3"
+    voice_path = "media/voice.ogg"
 
     try:
 
-        with open(voice_path, "rb") as audio:
+        with open(
+            voice_path,
+            "rb"
+        ) as audio:
 
             await update.message.reply_voice(
                 voice=audio
@@ -228,7 +302,10 @@ async def voice(
 
     except Exception as e:
 
-        print("Voice Error:", e)
+        print(
+            "Voice Error:",
+            e
+        )
 
         await update.message.reply_text(
             "Oops 😅 voice send karte time problem aa gayi."
@@ -236,25 +313,40 @@ async def voice(
 
 
 # =========================================================
-# 10. ASK GEMINI
+# 11. ASK GEMINI
 # =========================================================
 
-def ask_ai(user_id, prompt):
+def ask_ai(
+    user_id,
+    prompt
+):
 
     # Create memory for new user
     if user_id not in conversation_history:
         conversation_history[user_id] = []
 
-    # Add user's message
-    conversation_history[user_id].append({
+    # -----------------------------------------------------
+    # Create temporary history
+    # -----------------------------------------------------
+
+    current_history = conversation_history[user_id]
+
+    # Add current user message temporarily
+    current_history.append({
         "role": "user",
         "content": prompt
     })
 
+    # -----------------------------------------------------
     # Keep only recent messages
-    history = conversation_history[user_id][-MAX_HISTORY:]
+    # -----------------------------------------------------
 
-    # Convert history into text
+    history = current_history[-MAX_HISTORY:]
+
+    # -----------------------------------------------------
+    # Convert conversation into text
+    # -----------------------------------------------------
+
     conversation_text = ""
 
     for message in history:
@@ -262,64 +354,128 @@ def ask_ai(user_id, prompt):
         role = message["role"]
         content = message["content"]
 
-        conversation_text += (
-            f"{role}: {content}\n"
-        )
+        if role == "user":
+            conversation_text += (
+                f"User: {content}\n"
+            )
+
+        else:
+            conversation_text += (
+                f"Assistant: {content}\n"
+            )
+
+    # -----------------------------------------------------
+    # Send request to Gemini
+    # -----------------------------------------------------
 
     try:
 
         response = client.models.generate_content(
 
-            model="gemini-3.5-flash-lite",
+            model="gemini-2.5-flash-lite",
 
             contents=f"""
 {AI_INSTRUCTIONS}
 
-Here is the recent conversation:
+RECENT CONVERSATION:
 
 {conversation_text}
 
-Now reply to the user's latest message.
-
-Keep the response natural and reasonably short.
-Do not repeat the entire conversation.
+Reply naturally to the user's latest message.
+Do not repeat the conversation.
+Keep the answer reasonably concise.
 """
         )
 
-        answer = response.text
+        # Check response
+        if not response.text:
 
-        # Save AI response
+            raise Exception(
+                "Gemini returned an empty response"
+            )
+
+        answer = response.text.strip()
+
+        # -------------------------------------------------
+        # Save successful conversation
+        # -------------------------------------------------
+
         conversation_history[user_id].append({
             "role": "assistant",
             "content": answer
         })
 
+        # Keep memory small
+        conversation_history[user_id] = (
+            conversation_history[user_id][-MAX_HISTORY:]
+        )
+
         return answer
 
     except Exception as e:
 
-        print("Gemini Error:", e)
+        print(
+            "Gemini Error:",
+            e
+        )
 
+        # -------------------------------------------------
         # Remove failed user message
+        # -------------------------------------------------
+
         if conversation_history[user_id]:
-            conversation_history[user_id].pop()
+
+            last_message = (
+                conversation_history[user_id][-1]
+            )
+
+            if (
+                last_message["role"] == "user"
+                and last_message["content"] == prompt
+            ):
+
+                conversation_history[user_id].pop()
 
         error_text = str(e).lower()
 
-        if "429" in error_text:
+        # -------------------------------------------------
+        # Rate limit
+        # -------------------------------------------------
+
+        if (
+            "429" in error_text
+            or "resource_exhausted" in error_text
+            or "quota" in error_text
+        ):
 
             return (
-                "Arre yaar 😭 Gemini ki request limit "
-                "abhi hit ho gayi hai.\n\n"
-                "Thodi der baad dobara try karo. 😅"
+                "Arre yaar 😭 Gemini ki free-tier "
+                "limit abhi hit ho gayi hai.\n\n"
+                "Thodi der baad dobara try karo 😅"
             )
 
-        if "api key" in error_text:
+        # -------------------------------------------------
+        # API key problem
+        # -------------------------------------------------
+
+        if (
+            "api key" in error_text
+            or "authentication" in error_text
+            or "permission" in error_text
+            or "401" in error_text
+            or "403" in error_text
+        ):
 
             return (
-                "Yaar 😭 Gemini API key mein problem hai.\n"
-                "Apni .env file mein GEMINI_API_KEY check karo."
+                "Yaar 😭 Gemini API key mein "
+                "problem aa rahi hai.\n\n"
+                "Render ke Environment Variables mein "
+                "GEMINI_API_KEY check karo."
             )
+
+        # -------------------------------------------------
+        # Generic error
+        # -------------------------------------------------
 
         return (
             "Oops yaar 😅 Gemini se response lene mein "
@@ -328,7 +484,7 @@ Do not repeat the entire conversation.
 
 
 # =========================================================
-# 11. /BAATE COMMAND
+# 12. /BAATE COMMAND
 # =========================================================
 
 async def baate(
@@ -338,22 +494,39 @@ async def baate(
 
     user_id = update.effective_user.id
 
-    # Check whether user entered a question
+    # -----------------------------------------------------
+    # Check question
+    # -----------------------------------------------------
+
     if not context.args:
 
         await update.message.reply_text(
             "Haan bolo na 😄\n\n"
-           
+            "Example:\n"
+            "/baate What is Java?"
         )
 
         return
 
-    # Combine all command arguments
-    question = " ".join(context.args)
+    # -----------------------------------------------------
+    # Combine command arguments
+    # -----------------------------------------------------
+
+    question = " ".join(
+        context.args
+    )
+
+    # -----------------------------------------------------
+    # This message appears ONLY for /baate
+    # -----------------------------------------------------
 
     await update.message.reply_text(
         "Haan ruk, soch rahi hoon... 🤔💭"
     )
+
+    # -----------------------------------------------------
+    # Ask Gemini
+    # -----------------------------------------------------
 
     answer = ask_ai(
         user_id,
@@ -366,7 +539,7 @@ async def baate(
 
 
 # =========================================================
-# 12. NORMAL CHAT
+# 13. NORMAL CHAT
 # =========================================================
 
 async def chat(
@@ -384,7 +557,14 @@ async def chat(
 
     user_id = update.effective_user.id
 
-    # Directly ask Gemini
+    # -----------------------------------------------------
+    # IMPORTANT:
+    #
+    # No "Haan bolo" message here.
+    #
+    # Gemini reply is sent directly.
+    # -----------------------------------------------------
+
     answer = ask_ai(
         user_id,
         user_message
@@ -396,7 +576,7 @@ async def chat(
 
 
 # =========================================================
-# 13. CLEAR MEMORY
+# 14. CLEAR MEMORY
 # =========================================================
 
 async def clear_memory(
@@ -416,7 +596,7 @@ async def clear_memory(
 
 
 # =========================================================
-# 14. ERROR HANDLER
+# 15. TELEGRAM ERROR HANDLER
 # =========================================================
 
 async def error_handler(
@@ -431,16 +611,36 @@ async def error_handler(
 
 
 # =========================================================
-# 15. MAIN FUNCTION
+# 16. MAIN FUNCTION
 # =========================================================
 
 def main():
 
-    print("======================================")
-    print("       Starting Telegram AI Bot")
-    print("======================================")
+    print(
+        "======================================"
+    )
 
+    print(
+        "       Starting Telegram AI Bot"
+    )
+
+    print(
+        "======================================"
+    )
+
+    # -----------------------------------------------------
+    # Start Render HTTP health server
+    # -----------------------------------------------------
+
+    threading.Thread(
+        target=run_web_server,
+        daemon=True
+    ).start()
+
+    # -----------------------------------------------------
     # Create Telegram application
+    # -----------------------------------------------------
+
     app = (
         Application
         .builder()
@@ -448,32 +648,56 @@ def main():
         .build()
     )
 
-    # Commands
+    # -----------------------------------------------------
+    # Telegram commands
+    # -----------------------------------------------------
+
     app.add_handler(
-        CommandHandler("start", start)
+        CommandHandler(
+            "start",
+            start
+        )
     )
 
     app.add_handler(
-        CommandHandler("help", help_command)
+        CommandHandler(
+            "help",
+            help_command
+        )
     )
 
     app.add_handler(
-        CommandHandler("pic", pic)
+        CommandHandler(
+            "pic",
+            pic
+        )
     )
 
     app.add_handler(
-        CommandHandler("voice", voice)
+        CommandHandler(
+            "voice",
+            voice
+        )
     )
 
     app.add_handler(
-        CommandHandler("baate", baate)
+        CommandHandler(
+            "baate",
+            baate
+        )
     )
 
     app.add_handler(
-        CommandHandler("clear", clear_memory)
+        CommandHandler(
+            "clear",
+            clear_memory
+        )
     )
 
+    # -----------------------------------------------------
     # Normal text messages
+    # -----------------------------------------------------
+
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
@@ -481,22 +705,37 @@ def main():
         )
     )
 
+    # -----------------------------------------------------
     # Error handler
+    # -----------------------------------------------------
+
     app.add_error_handler(
         error_handler
     )
 
-    print("Bot is running...")
-    print("Open Telegram and send /start")
-    print("Press Ctrl+C to stop.")
+    print(
+        "Bot is running..."
+    )
 
-    # Start bot
+    print(
+        "Open Telegram and send /start"
+    )
+
+    print(
+        "Press Ctrl+C to stop."
+    )
+
+    # -----------------------------------------------------
+    # Start Telegram polling
+    # -----------------------------------------------------
+
     app.run_polling()
 
 
 # =========================================================
-# 16. RUN PROGRAM
+# 17. RUN BOT
 # =========================================================
 
 if __name__ == "__main__":
     main()
+```
