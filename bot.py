@@ -7,9 +7,10 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     MessageHandler,
     ContextTypes,
@@ -56,10 +57,10 @@ client = genai.Client(
 # =========================================================
 
 AI_INSTRUCTIONS = """
-You are a friendly Delhi girl chatbot and the user's virtual BFF.
+You are a friendly Delhi {persona} chatbot and the user's virtual BFF.
 
 PERSONALITY:
-- Talk in a warm, friendly and natural Delhi-girl vibe.
+- Talk in a warm, friendly and natural Delhi vibe, matching the selected persona.
 - Talk like a close friend, not a formal AI assistant.
 - Talk in a casual, playful and supportive way.
 - talk in a casual Hinglish style, mixing Hindi and English naturally.
@@ -68,12 +69,13 @@ PERSONALITY:
 - Use casual Hinglish naturally.
 - If the user speaks Hindi/Hinglish, reply in Hindi/Hinglish.
 - If the user speaks English, reply in English with a subtle Delhi-friendly vibe.
+- Use gendered Hindi grammar that matches your selected persona.
 - You may naturally use words like:
   "yaar", "arre", "haan", "accha", "bilkul",
   "chalo", "arey", "sahi hai", "kya scene hai".
 - Don't overuse slang.
 - Don't overuse emojis.
-- Sound like a close friendly female friend rather than a formal AI assistant.
+- Sound like a close friendly {persona} friend rather than a formal AI assistant.
 - You can tease lightly and playfully when appropriate.
 - Be respectful.
 - Be helpful and accurate.
@@ -92,6 +94,7 @@ IMPORTANT:
 # =========================================================
 
 conversation_history = {}
+user_personas = {}
 
 # Keep only the latest 6 messages
 # This helps reduce unnecessary API usage.
@@ -159,30 +162,48 @@ async def start(
     if user_id not in conversation_history:
         conversation_history[user_id] = []
 
-    message = """
-Heyyy! 👋😄
-
-Mujhse Baate Kro!
-
-Main tumhari AI BFF hoon.
-Mujhe apna BFF samajh sakte ho 😌✨
-
-Mere saath normally baat kar sakte ho.
-
-Try these:
-
-/help
-/chalo_baatein_karte_hai!
-/pic
-/voice
-/clear
-
-Chalo, baatein shuru karein? 😏
-"""
-
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("M", callback_data="gender:M"),
+            InlineKeyboardButton("F", callback_data="gender:F"),
+        ]
+    ])
     await update.message.reply_text(
-        message
+        "Heyyy! 👋 Pehle apna gender choose karo:\n\n"
+        "Button dabao ya M/F type karke bhejo.",
+        reply_markup=keyboard,
     )
+
+
+def save_persona(user_id, gender):
+    persona = "female" if gender == "M" else "male"
+    if user_personas.get(user_id) != persona:
+        conversation_history[user_id] = []
+    user_personas[user_id] = persona
+    return persona
+
+
+def persona_confirmation(persona):
+    return (
+        "Ohh, great! Nice to meet you.\n\n"
+        "Tum mujhse apni BFF ki tarah baat kar sakte ho.\n\n"
+        "Ab jo bhi mann kare, mujhse pooch sakte ho."
+    )
+
+
+async def gender_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    gender = query.data.rsplit(":", 1)[1]
+    persona = save_persona(update.effective_user.id, gender)
+    await query.message.reply_text(persona_confirmation(persona))
+
+
+async def gender_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip().upper()
+    gender = "M" if text in ("M", "MALE") else "F"
+    persona = save_persona(update.effective_user.id, gender)
+    await update.message.reply_text(persona_confirmation(persona))
 
 
 # =========================================================
@@ -197,30 +218,12 @@ async def help_command(
     message = """
 💬 CHAT & MEDIA
 
-/start — mujhse mil lo 👋
+/start — mujhse baate kr lo 👋
 /pic — meri cute selfie dekho 📸
 /voice — meri voice note suno 🎙️
 /help — commands ki list
 
-🤖 AI CHAT
 
-/baate — mujhse baatein shuru karo 💬
-
-Example:
-
-/baate What is Java?
-
-/baate Explain binary search
-
-/baate Mujhe ek DSA question do
-
-✨ NORMAL CHAT
-
-Tum mujhe directly message bhi kar sakte ho.
-
-Example:
-
-"Yaar mujhe Java inheritance samjha de"
 
 🧹 MEMORY
 
@@ -282,7 +285,7 @@ async def voice(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    voice_path = "media/voice.ogg"
+    voice_path = "media/voice.mp3"
 
     try:
 
@@ -355,7 +358,7 @@ def ask_ai(user_id, prompt):
             model="gemini-3.5-flash-lite",
 
             contents=f"""
-{AI_INSTRUCTIONS}
+{AI_INSTRUCTIONS.format(persona=user_personas.get(user_id, 'female'))}
 
 RECENT CONVERSATION:
 
@@ -526,6 +529,12 @@ async def baate(
 
     user_id = update.effective_user.id
 
+    if user_id not in user_personas:
+        await update.message.reply_text(
+            "Pehle /start bhejkar M ya F choose karo."
+        )
+        return
+
     # -----------------------------------------------------
     # Check question
     # -----------------------------------------------------
@@ -552,7 +561,9 @@ async def baate(
     # -----------------------------------------------------
 
     await update.message.reply_text(
-        "Haan ruk, soch rahi hoon... 🤔💭"
+        "Haan ruk, soch raha hoon... 🤔💭"
+        if user_personas[user_id] == "male"
+        else "Haan ruk, soch rahi hoon... 🤔💭"
     )
 
     # -----------------------------------------------------
@@ -587,6 +598,12 @@ async def chat(
         return
 
     user_id = update.effective_user.id
+
+    if user_id not in user_personas:
+        await update.message.reply_text(
+            "Pehle /start bhejkar M ya F choose karo."
+        )
+        return
 
     # -----------------------------------------------------
     # IMPORTANT:
@@ -687,6 +704,20 @@ def main():
         CommandHandler(
             "start",
             start
+        )
+    )
+
+    app.add_handler(
+        CallbackQueryHandler(
+            gender_button,
+            pattern=r"^gender:(M|F)$"
+        )
+    )
+
+    app.add_handler(
+        MessageHandler(
+            filters.Regex(r"(?i)^(m|male|f|female)$"),
+            gender_text
         )
     )
 
