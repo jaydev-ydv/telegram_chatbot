@@ -3,7 +3,6 @@ import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
 from google import genai
@@ -162,26 +161,6 @@ def run_web_server():
     )
 
     server.serve_forever()
-
-
-def run_self_ping():
-    """Send an inbound request to this Render web service every 10 minutes."""
-    service_url = os.getenv("RENDER_EXTERNAL_URL")
-    if not service_url:
-        print("Self-ping disabled: RENDER_EXTERNAL_URL is not set.")
-        return
-
-    while True:
-        time.sleep(10 * 60)
-        try:
-            request = Request(
-                service_url,
-                headers={"User-Agent": "telegram-bot-self-ping/1.0"},
-            )
-            with urlopen(request, timeout=30) as response:
-                print(f"Self-ping returned HTTP {response.status}.")
-        except Exception as error:
-            print("Self-ping failed:", repr(error))
 
 
 # =========================================================
@@ -720,11 +699,6 @@ def main():
 
     threading.Thread(
         target=run_web_server,
-        daemon=True
-    ).start()
-
-    threading.Thread(
-        target=run_self_ping,
         daemon=True
     ).start()
 
