@@ -1,7 +1,9 @@
 
 import os
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
 from google import genai
@@ -94,11 +96,26 @@ IMPORTANT:
 # =========================================================
 
 conversation_history = {}
+conversation_last_activity = {}
 user_personas = {}
 
 # Keep only the latest 6 messages
 # This helps reduce unnecessary API usage.
 MAX_HISTORY = 6
+HISTORY_TTL_SECONDS = 2 * 60 * 60
+
+
+def get_conversation_history(user_id):
+    """Return this user's history, clearing it after two idle hours."""
+    last_activity = conversation_last_activity.get(user_id)
+    if (
+        last_activity is not None
+        and time.time() - last_activity >= HISTORY_TTL_SECONDS
+    ):
+        conversation_history.pop(user_id, None)
+
+    conversation_last_activity[user_id] = time.time()
+    return conversation_history.setdefault(user_id, [])
 
 
 # =========================================================
@@ -147,6 +164,26 @@ def run_web_server():
     server.serve_forever()
 
 
+def run_self_ping():
+    """Send an inbound request to this Render web service every 10 minutes."""
+    service_url = os.getenv("RENDER_EXTERNAL_URL")
+    if not service_url:
+        print("Self-ping disabled: RENDER_EXTERNAL_URL is not set.")
+        return
+
+    while True:
+        time.sleep(10 * 60)
+        try:
+            request = Request(
+                service_url,
+                headers={"User-Agent": "telegram-bot-self-ping/1.0"},
+            )
+            with urlopen(request, timeout=30) as response:
+                print(f"Self-ping returned HTTP {response.status}.")
+        except Exception as error:
+            print("Self-ping failed:", repr(error))
+
+
 # =========================================================
 # 7. START COMMAND
 # =========================================================
@@ -160,7 +197,7 @@ async def start(
 
     # Create memory for user
     if user_id not in conversation_history:
-        conversation_history[user_id] = []
+        get_conversation_history(user_id)
 
     keyboard = InlineKeyboardMarkup([
         [
@@ -179,6 +216,7 @@ def save_persona(user_id, gender):
     persona = "female" if gender == "M" else "male"
     if user_personas.get(user_id) != persona:
         conversation_history[user_id] = []
+        conversation_last_activity[user_id] = time.time()
     user_personas[user_id] = persona
     return persona
 
@@ -322,17 +360,16 @@ async def voice(
 
 def ask_ai(user_id, prompt):
 
-    if user_id not in conversation_history:
-        conversation_history[user_id] = []
+    history = get_conversation_history(user_id)
 
     # Add user message temporarily
-    conversation_history[user_id].append({
+    history.append({
         "role": "user",
         "content": prompt
     })
 
     # Keep only recent messages
-    history = conversation_history[user_id][-MAX_HISTORY:]
+    history = history[-MAX_HISTORY:]
 
     # Create conversation text
     conversation_text = ""
@@ -635,6 +672,7 @@ async def clear_memory(
     user_id = update.effective_user.id
 
     conversation_history[user_id] = []
+    conversation_last_activity[user_id] = time.time()
 
     await update.message.reply_text(
         "Done yaar 😌✨\n\n"
@@ -682,6 +720,11 @@ def main():
 
     threading.Thread(
         target=run_web_server,
+        daemon=True
+    ).start()
+
+    threading.Thread(
+        target=run_self_ping,
         daemon=True
     ).start()
 
