@@ -132,6 +132,11 @@ class HealthHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
 
+        print(
+            f"Health ping received: {self.path}",
+            flush=True
+        )
+
         self.send_response(200)
 
         self.send_header(
