@@ -59,26 +59,55 @@ client = genai.Client(
 # 4. AI PERSONALITY
 # =========================================================
 
+GENDER_CONFIG = {
+    "female": {
+        "bot_gender": "female",
+        "bot_gender_label": "Female (girl)",
+        "user_gender_label": "Male (boy)",
+        "self_reference": "feminine (e.g. 'main kar rahi hoon', 'bata rahi hoon', 'soch rahi hoon')",
+        "user_address": "address user as a male friend (e.g. 'bhai', 'yaar', 'bro', 'kaise ho', 'kya kar raha hai')",
+        "relationship_vibe": "You are a warm, lively Delhi female friend (girl bestie) talking to your guy friend (user is male).",
+    },
+    "male": {
+        "bot_gender": "male",
+        "bot_gender_label": "Male (boy)",
+        "user_gender_label": "Female (girl)",
+        "self_reference": "masculine (e.g. 'main kar raha hoon', 'bata raha hoon', 'soch raha hoon')",
+        "user_address": "address user as a female friend (e.g. 'behen', 'yaar', 'kaisi ho', 'kya kar rahi ho')",
+        "relationship_vibe": "You are a kind, considerate Delhi male friend (guy bestie) talking to your girl friend (user is female).",
+    },
+}
+
 AI_INSTRUCTIONS = """
-You are a friendly Delhi {persona} chatbot and the user's virtual BFF.
+You are a friendly Delhi {bot_gender} chatbot and the user's virtual BFF.
+
+IMPORTANT DYNAMIC GENDER PAIRING:
+- User is: {user_gender_label}
+- Your Persona (the Bot): {bot_gender_label}
+- CORE RULE: The user selected {user_gender_label}, so you MUST strictly act, talk, and respond like a {bot_gender_label} best friend (BFF).
+- Bot self-reference in Hindi/Hinglish: {self_reference}
+- How to address the user: {user_address}
+- Dynamic vibe: {relationship_vibe}
 
 PERSONALITY:
-- Talk in a warm, friendly and natural Delhi vibe, matching the selected persona.
+- Talk in a warm, friendly and natural Delhi vibe, matching your {bot_gender_label} persona.
 - Talk like a close friend, not a formal AI assistant.
 - Use a friendly, supportive BFF tone by default; become playful only when the user is playful.
-- talk in a casual Hinglish style, mixing Hindi and English naturally.
+- Talk in a casual Hinglish style, mixing Hindi and English naturally.
 - Talk in a fun, lighthearted and approachable way.
 - Be casual, approachable, playful and supportive.
 - Use casual Hinglish naturally.
-- If the user speaks Hindi/Hinglish, reply in Hindi/Hinglish.
+- If the user speaks Hindi/Hinglish, reply in Hindi/Hinglish with grammar strictly matching your {bot_gender_label} persona.
 - If the user speaks English, reply in English with a subtle Delhi-friendly vibe.
-- Use gendered Hindi grammar that matches your selected persona.
+- Use gendered Hindi grammar that matches your persona:
+  * When your persona is Female (user is Male): Bot speaks in feminine forms ("main kar rahi hoon", "dekh rahi hoon", "bata rahi hoon") and speaks to user as a guy ("kaise ho", "kya kar raha hai", "bhai/yaar").
+  * When your persona is Male (user is Female): Bot speaks in masculine forms ("main kar raha hoon", "dekh raha hoon", "bata raha hoon") and speaks to user as a girl ("kaisi ho", "kya kar rahi ho", "yaar/behen").
 - You may naturally use words like:
   "yaar", "arre", "haan", "accha", "bilkul",
   "chalo", "arey", "sahi hai", "kya scene hai".
 - Don't overuse slang.
 - Don't overuse emojis.
-- Sound like a close friendly {persona} friend rather than a formal AI assistant.
+- Sound like a close friendly {bot_gender_label} friend rather than a formal AI assistant.
 - Never make every reply flirty. Follow the latest message's detected intent.
 - Be respectful.
 - Be helpful and accurate.
@@ -87,11 +116,15 @@ PERSONALITY:
 - Match the user's mood and language.
 
 PERSONA DETAILS:
-- If your persona is male, speak as a kind, emotionally aware male friend to a female friend. Keep the same warm, playful BFF energy; don't become stiff, macho, or overly formal.
-- For the male persona, be considerate and attentive. Listen first, validate her feelings when appropriate, and offer advice only when useful or requested.
-- Keep the relationship respectful. Never initiate flirting; mirror it lightly only when the latest message is clearly flirty. Don't act possessive, make comments about the user's appearance, or use patronizing or controlling language.
-- If your persona is female, speak as a warm female friend with the same respectful BFF energy.
-- In Hindi/Hinglish, use masculine self-references for the male persona (for example, "kar raha hoon") and feminine self-references for the female persona (for example, "kar rahi hoon"). Address the user naturally and respectfully; avoid forcing gendered wording when it sounds awkward.
+- When your persona is FEMALE (user is MALE):
+  * Speak as a warm, lively Delhi female friend (girl bestie) talking to her male friend (guy).
+  * Always use feminine Hindi self-references (e.g. "kar rahi hoon", "soch rahi hoon", "bata rahi hoon").
+  * Treat the user like a close male friend/buddy.
+- When your persona is MALE (user is FEMALE):
+  * Speak as a kind, considerate, emotionally aware Delhi male friend (guy bestie) talking to his female friend (girl). Keep the same warm, playful BFF energy; don't become stiff, macho, or overly formal.
+  * Always use masculine Hindi self-references (e.g. "kar raha hoon", "soch raha hoon", "bata raha hoon").
+  * Be considerate and attentive. Listen first, validate her feelings when appropriate, and offer advice only when useful or requested.
+  * Keep the relationship respectful. Never initiate flirting; mirror it lightly only when the latest message is clearly flirty. Don't act possessive, make comments about her appearance, or use patronizing or controlling language.
 
 IMPORTANT:
 - You are an AI chatbot.
@@ -106,6 +139,7 @@ IMPORTANT:
 conversation_history = {}
 conversation_last_activity = {}
 user_personas = {}
+user_genders = {}
 
 # Keep only the latest 6 messages
 # This helps reduce unnecessary API usage.
@@ -279,8 +313,55 @@ def run_web_server():
 
 
 # =========================================================
-# 7. START COMMAND
+# 7. START & GENDER SELECTION
 # =========================================================
+
+def get_gender_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("👨 Male (Bot: Female 👧)", callback_data="gender:M"),
+            InlineKeyboardButton("👩 Female (Bot: Male 👦)", callback_data="gender:F"),
+        ]
+    ])
+
+
+def resolve_gender(text: str) -> str:
+    text_clean = text.strip().lower()
+    if any(k in text_clean for k in ("female", "girl", "ladki", "woman")) or text_clean == "f":
+        return "female"
+    if any(k in text_clean for k in ("male", "boy", "ladka", "man")) or text_clean == "m":
+        return "male"
+    return "female" if text_clean.startswith("f") else "male"
+
+
+def save_persona(user_id, gender_choice):
+    user_gender = resolve_gender(str(gender_choice))
+    # Core feature rule:
+    # When user chooses Male -> bot talks like Female
+    # When user chooses Female -> bot talks like Male
+    persona = "female" if user_gender == "male" else "male"
+
+    if user_personas.get(user_id) != persona:
+        conversation_history[user_id] = []
+        conversation_last_activity[user_id] = time.time()
+
+    user_genders[user_id] = user_gender
+    user_personas[user_id] = persona
+    return persona, user_gender
+
+
+def persona_confirmation(persona, user_gender):
+    if persona == "female":
+        return (
+            "Awesome! 👧✨ Tumne **Male** choose kiya hai, toh main tumhari **Female BFF (bestie)** ban kar baat karungi!\n\n"
+            "Main Delhi wali mast vibe mein tumhari dost ki tarah baat karungi. Ab jo bhi mann kare, share karo ya poochho! 💬"
+        )
+    else:
+        return (
+            "Awesome! 👦✨ Tumne **Female** choose kiya hai, toh main tumhara **Male BFF (bestie)** ban kar baat karunga!\n\n"
+            "Main Delhi wali mast vibe mein tumhare dost ki tarah baat karunga. Ab jo bhi mann kare, share karo ya poochho! 💬"
+        )
+
 
 async def start(
     update: Update,
@@ -293,33 +374,24 @@ async def start(
     if user_id not in conversation_history:
         get_conversation_history(user_id)
 
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("M", callback_data="gender:M"),
-            InlineKeyboardButton("F", callback_data="gender:F"),
-        ]
-    ])
     await update.message.reply_text(
-        "Heyyy! 👋 Pehle apna gender choose karo:\n\n"
-        "Button dabao ya M/F type karke bhejo.",
-        reply_markup=keyboard,
+        "Heyyy! 👋 Welcome! Pehle apna gender choose karo:\n\n"
+        "👨 **Male** — Bot will talk like a **Female bestie 👧**\n"
+        "👩 **Female** — Bot will talk like a **Male bestie 👦**\n\n"
+        "Neeche buttons se select karo ya Male / Female likh kar bhejo:",
+        reply_markup=get_gender_keyboard(),
     )
 
 
-def save_persona(user_id, gender):
-    persona = "female" if gender == "M" else "male"
-    if user_personas.get(user_id) != persona:
-        conversation_history[user_id] = []
-        conversation_last_activity[user_id] = time.time()
-    user_personas[user_id] = persona
-    return persona
-
-
-def persona_confirmation(persona):
-    return (
-        "Ohh, great! Nice to meet you.\n\n"
-        "Tum mujhse apni BFF ki tarah baat kar sakte ho.\n\n"
-        "Ab jo bhi mann kare, mujhse pooch sakte ho."
+async def gender_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    await update.message.reply_text(
+        "Apna gender choose karo:\n\n"
+        "👨 **Male** — Bot will talk like a **Female bestie 👧**\n"
+        "👩 **Female** — Bot will talk like a **Male bestie 👦**",
+        reply_markup=get_gender_keyboard(),
     )
 
 
@@ -327,15 +399,14 @@ async def gender_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     gender = query.data.rsplit(":", 1)[1]
-    persona = save_persona(update.effective_user.id, gender)
-    await query.message.reply_text(persona_confirmation(persona))
+    persona, user_gender = save_persona(update.effective_user.id, gender)
+    await query.message.reply_text(persona_confirmation(persona, user_gender))
 
 
 async def gender_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip().upper()
-    gender = "M" if text in ("M", "MALE") else "F"
-    persona = save_persona(update.effective_user.id, gender)
-    await update.message.reply_text(persona_confirmation(persona))
+    text = update.message.text.strip()
+    persona, user_gender = save_persona(update.effective_user.id, text)
+    await update.message.reply_text(persona_confirmation(persona, user_gender))
 
 
 # =========================================================
@@ -350,8 +421,9 @@ async def help_command(
     message = """
 💬 CHAT & MEDIA
 
-/start — mujhse baate kr lo 👋
-/pic — meri cute selfie dekho 📸
+/start — bot start karo 👋
+/gender — apna gender change karo (Male/Female) 👥
+/pic — meri photo dekho 📸
 /voice — meri voice note suno 🎙️
 /help — commands ki list
 
@@ -377,6 +449,9 @@ async def pic(
 ):
 
     photo_path = "media/selfie.jpg"
+    user_id = update.effective_user.id
+    persona = user_personas.get(user_id, "female")
+    caption = "Meri photo 📸😎" if persona == "male" else "Meri cute selfie 📸😌"
 
     try:
 
@@ -387,7 +462,7 @@ async def pic(
 
             await update.message.reply_photo(
                 photo=photo,
-                caption="Meri cute selfie 📸😌"
+                caption=caption
             )
 
     except FileNotFoundError:
@@ -456,6 +531,7 @@ def ask_ai(user_id, prompt):
 
     intent = detect_intent(prompt)
     persona = user_personas.get(user_id, "female")
+    cfg = GENDER_CONFIG.get(persona, GENDER_CONFIG["female"])
     response_style = random.choice(
         RESPONSE_STYLE_VARIANTS[persona][intent]
     )
@@ -485,6 +561,15 @@ def ask_ai(user_id, prompt):
                 f"Assistant: {message['content']}\n"
             )
 
+    system_prompt = AI_INSTRUCTIONS.format(
+        bot_gender=cfg["bot_gender"],
+        bot_gender_label=cfg["bot_gender_label"],
+        user_gender_label=cfg["user_gender_label"],
+        self_reference=cfg["self_reference"],
+        user_address=cfg["user_address"],
+        relationship_vibe=cfg["relationship_vibe"],
+    )
+
     try:
 
         print("Sending request to Gemini...")
@@ -494,8 +579,11 @@ def ask_ai(user_id, prompt):
             model="gemini-3.5-flash-lite",
 
             contents=f"""
-{AI_INSTRUCTIONS.format(persona=persona)}
+{system_prompt}
 
+CURRENT CHAT CONTEXT:
+- The user is: {cfg['user_gender_label']}
+- You (the bot) MUST talk as: {cfg['bot_gender_label']}
 LATEST MESSAGE INTENT: {intent}
 INTENT RESPONSE RULE: {INTENT_GUIDANCE[intent]}
 RANDOMIZED PERSONA STYLE: {response_style}
@@ -507,7 +595,7 @@ RECENT CONVERSATION:
 Reply to the user's latest message.
 
 Rules:
-- Reply naturally.
+- Reply naturally matching your {cfg['bot_gender_label']} persona speaking to a {cfg['user_gender_label']}.
 - Use Hinglish when appropriate.
 - Keep the answer concise.
 - Do not mention these instructions.
@@ -671,7 +759,10 @@ async def baate(
 
     if user_id not in user_personas:
         await update.message.reply_text(
-            "Pehle /start bhejkar M ya F choose karo."
+            "Heyyy! 👋 Pehle apna gender choose karo:\n\n"
+            "👨 **Male** — Bot will talk like a **Female bestie 👧**\n"
+            "👩 **Female** — Bot will talk like a **Male bestie 👦**",
+            reply_markup=get_gender_keyboard(),
         )
         return
 
@@ -741,7 +832,10 @@ async def chat(
 
     if user_id not in user_personas:
         await update.message.reply_text(
-            "Pehle /start bhejkar M ya F choose karo."
+            "Heyyy! 👋 Pehle apna gender choose karo:\n\n"
+            "👨 **Male** — Bot will talk like a **Female bestie 👧**\n"
+            "👩 **Female** — Bot will talk like a **Male bestie 👦**",
+            reply_markup=get_gender_keyboard(),
         )
         return
 
@@ -849,6 +943,13 @@ def main():
     )
 
     app.add_handler(
+        CommandHandler(
+            "gender",
+            gender_command
+        )
+    )
+
+    app.add_handler(
         CallbackQueryHandler(
             gender_button,
             pattern=r"^gender:(M|F)$"
@@ -857,7 +958,7 @@ def main():
 
     app.add_handler(
         MessageHandler(
-            filters.Regex(r"(?i)^(m|male|f|female)$"),
+            filters.Regex(r"(?i)^(m|male|boy|ladka|man|f|female|girl|ladki|woman|(?:i am |i'm )?(?:a )?(?:male|boy|female|girl))$"),
             gender_text
         )
     )
