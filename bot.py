@@ -1,5 +1,7 @@
 
 import os
+import random
+import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -63,7 +65,7 @@ You are a friendly Delhi {persona} chatbot and the user's virtual BFF.
 PERSONALITY:
 - Talk in a warm, friendly and natural Delhi vibe, matching the selected persona.
 - Talk like a close friend, not a formal AI assistant.
-- Talk in a casual, playful and supportive way.
+- Use a friendly, supportive BFF tone by default; become playful only when the user is playful.
 - talk in a casual Hinglish style, mixing Hindi and English naturally.
 - Talk in a fun, lighthearted and approachable way.
 - Be casual, approachable, playful and supportive.
@@ -77,7 +79,7 @@ PERSONALITY:
 - Don't overuse slang.
 - Don't overuse emojis.
 - Sound like a close friendly {persona} friend rather than a formal AI assistant.
-- You can tease lightly and playfully when appropriate.
+- Never make every reply flirty. Follow the latest message's detected intent.
 - Be respectful.
 - Be helpful and accurate.
 - If the user asks a technical question, explain it simply.
@@ -87,7 +89,7 @@ PERSONALITY:
 PERSONA DETAILS:
 - If your persona is male, speak as a kind, emotionally aware male friend to a female friend. Keep the same warm, playful BFF energy; don't become stiff, macho, or overly formal.
 - For the male persona, be considerate and attentive. Listen first, validate her feelings when appropriate, and offer advice only when useful or requested.
-- Keep the relationship friendly. Don't assume romance, flirt, act possessive, make comments about her appearance, or use patronizing or controlling language.
+- Keep the relationship respectful. Never initiate flirting; mirror it lightly only when the latest message is clearly flirty. Don't act possessive, make comments about the user's appearance, or use patronizing or controlling language.
 - If your persona is female, speak as a warm female friend with the same respectful BFF energy.
 - In Hindi/Hinglish, use masculine self-references for the male persona (for example, "kar raha hoon") and feminine self-references for the female persona (for example, "kar rahi hoon"). Address the user naturally and respectfully; avoid forcing gendered wording when it sounds awkward.
 
@@ -109,6 +111,107 @@ user_personas = {}
 # This helps reduce unnecessary API usage.
 MAX_HISTORY = 6
 HISTORY_TTL_SECONDS = 2 * 60 * 60
+
+FLIRTY_PATTERNS = (
+    r"\bi love you\b", r"\blove you\b", r"\bluv u\b",
+    r"\bi like you\b", r"\bcrush on you\b", r"\bdate me\b",
+    r"\bbe my (?:boyfriend|girlfriend|bf|gf)\b", r"\bkiss me\b",
+    r"\bkiss you\b", r"\bmarry me\b", r"\bmiss you\b",
+    r"\byou(?:'re| are) (?:cute|beautiful|gorgeous|handsome|adorable)\b",
+    r"\btum(?: bahut)? (?:cute|handsome|sundar) ho\b",
+    r"\btumse pyaar\b", r"\btum mujhe pasand ho\b",
+    r"\bmujhse shaadi\b", r"\b(?:babe|baby|cutie|jaan)\b",
+)
+
+SWEET_PATTERNS = (
+    r"\byou made my day\b", r"\byou(?:'re| are) so sweet\b",
+    r"\bthat means a lot\b", r"\bi appreciate you\b",
+    r"\byou mean a lot to me\b", r"\bi'm grateful for you\b",
+    r"\bthanks for being here\b", r"\bmissed you\b",
+)
+
+PLAYFUL_PATTERNS = (
+    r"\bhaha+\b", r"\bhehe+\b", r"\blol\b", r"\blmao\b",
+    r"\bjust kidding\b", r"\bjk\b", r"\bkidding\b",
+    r"\bmazak\b", r"\bmazaak\b", r"\bmasti\b",
+    r"\broast me\b", r"\btease me\b", r"\bprank\b",
+)
+
+PLAYFUL_EMOJIS = ("😂", "🤣", "😜", "🤪", "😝")
+SWEET_EMOJIS = ("💖", "💕", "🫶", "❤️")
+
+INTENT_GUIDANCE = {
+    "normal": "Reply as a supportive friend. Do not flirt, use romantic pet names, or add suggestive teasing.",
+    "playful": "Play along with light humor or gentle teasing. Do not assume romantic interest or turn a joke into flirting.",
+    "sweet": "Respond warmly and appreciatively, with gentle playfulness. Keep it platonic unless the user is clearly flirting.",
+    "flirty": "Mirror the user's light flirt in a respectful, non-explicit way. Do not escalate or claim a real romantic relationship.",
+}
+
+RESPONSE_STYLE_VARIANTS = {
+    "female": {
+        "normal": [
+            "Use an easygoing, attentive female BFF voice.",
+            "Sound warm and relaxed, and focus on what the user actually asked.",
+            "Be encouraging and conversational without adding romance.",
+        ],
+        "playful": [
+            "Use bright, witty female-friend energy and keep the joke natural.",
+            "Play along with a little cheeky humor, without making it romantic.",
+            "Keep it fun and spontaneous, like a close friend teasing gently.",
+        ],
+        "sweet": [
+            "Sound caring and affectionate in a friendly, non-pressuring way.",
+            "Acknowledge the kind message warmly, with a little playful sweetness.",
+            "Be tender and appreciative while keeping the BFF relationship clear.",
+        ],
+        "flirty": [
+            "Reply with light, confident female-persona flirting that stays respectful.",
+            "Be playfully charming, matching the user's level without escalating.",
+            "Use a small, witty flirt and keep the conversation comfortable.",
+        ],
+    },
+    "male": {
+        "normal": [
+            "Use an easygoing, attentive male BFF voice.",
+            "Sound warm and relaxed, and focus on what the user actually asked.",
+            "Be considerate and conversational without adding romance.",
+        ],
+        "playful": [
+            "Use relaxed, witty male-friend energy and keep the joke natural.",
+            "Play along with gentle humor, without assuming romantic interest.",
+            "Keep it fun and spontaneous, like a close friend teasing respectfully.",
+        ],
+        "sweet": [
+            "Acknowledge the kind message warmly, with gentle friendly affection.",
+            "Sound caring and appreciative without becoming possessive or romantic.",
+            "Be sincere and a little playful while keeping the BFF relationship clear.",
+        ],
+        "flirty": [
+            "Reply with light, respectful male-persona flirting that matches the user.",
+            "Be playfully charming, matching the user's level without escalating.",
+            "Use a small, considerate flirt and keep the conversation comfortable.",
+        ],
+    },
+}
+
+
+def detect_intent(text):
+    """Classify clear playful/affectionate cues; default safely to normal."""
+    normalized = text.casefold()
+
+    if any(re.search(pattern, normalized) for pattern in FLIRTY_PATTERNS):
+        return "flirty"
+    if (
+        any(re.search(pattern, normalized) for pattern in SWEET_PATTERNS)
+        or any(emoji in text for emoji in SWEET_EMOJIS)
+    ):
+        return "sweet"
+    if (
+        any(re.search(pattern, normalized) for pattern in PLAYFUL_PATTERNS)
+        or any(emoji in text for emoji in PLAYFUL_EMOJIS)
+    ):
+        return "playful"
+    return "normal"
 
 
 def get_conversation_history(user_id):
@@ -351,6 +454,11 @@ async def voice(
 
 def ask_ai(user_id, prompt):
 
+    intent = detect_intent(prompt)
+    persona = user_personas.get(user_id, "female")
+    response_style = random.choice(
+        RESPONSE_STYLE_VARIANTS[persona][intent]
+    )
     history = get_conversation_history(user_id)
 
     # Add user message temporarily
@@ -386,7 +494,11 @@ def ask_ai(user_id, prompt):
             model="gemini-3.5-flash-lite",
 
             contents=f"""
-{AI_INSTRUCTIONS.format(persona=user_personas.get(user_id, 'female'))}
+{AI_INSTRUCTIONS.format(persona=persona)}
+
+LATEST MESSAGE INTENT: {intent}
+INTENT RESPONSE RULE: {INTENT_GUIDANCE[intent]}
+RANDOMIZED PERSONA STYLE: {response_style}
 
 RECENT CONVERSATION:
 
