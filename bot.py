@@ -319,8 +319,8 @@ def run_web_server():
 def get_gender_keyboard():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("👨 Male (Bot: Female 👧)", callback_data="gender:M"),
-            InlineKeyboardButton("👩 Female (Bot: Male 👦)", callback_data="gender:F"),
+            InlineKeyboardButton("👨 Male", callback_data="gender:M"),
+            InlineKeyboardButton("👩 Female", callback_data="gender:F"),
         ]
     ])
 
@@ -353,13 +353,15 @@ def save_persona(user_id, gender_choice):
 def persona_confirmation(persona, user_gender):
     if persona == "female":
         return (
-            "Awesome! 👧✨ Tumne **Male** choose kiya hai, toh main tumhari **Female BFF (bestie)** ban kar baat karungi!\n\n"
-            "Main Delhi wali mast vibe mein tumhari dost ki tarah baat karungi. Ab jo bhi mann kare, share karo ya poochho! 💬"
+            "Awesome! 👦✨\n\n"
+            "Tum mujhe **Female BFF (bestie)** maan kar baat kar sakte ho\n\n"
+            "Ab jo bhi mann kare, share karo ya poochho! 💬"
         )
     else:
         return (
-            "Awesome! 👦✨ Tumne **Female** choose kiya hai, toh main tumhara **Male BFF (bestie)** ban kar baat karunga!\n\n"
-            "Main Delhi wali mast vibe mein tumhare dost ki tarah baat karunga. Ab jo bhi mann kare, share karo ya poochho! 💬"
+            "Awesome! 👧✨\n\n"
+            "Tum mujhe **Male BFF (bestie)** maan kar baat kar sakti ho\n\n"
+            "Ab jo bhi mann kare, share karo ya poochho! 💬"
         )
 
 
@@ -374,12 +376,22 @@ async def start(
     if user_id not in conversation_history:
         get_conversation_history(user_id)
 
+    message = """💬 CHAT & MEDIA
+
+/baate_kare — chlo baat krte h 👋
+/pic — meri photo dekho 📸
+/voice — meri voice note suno 🎙️
+/help — commands ki list
+
+
+
+🧹 MEMORY
+
+/clear — current conversation memory clear karo
+"""
+
     await update.message.reply_text(
-        "Heyyy! 👋 Welcome! Pehle apna gender choose karo:\n\n"
-        "👨 **Male** — Bot will talk like a **Female bestie 👧**\n"
-        "👩 **Female** — Bot will talk like a **Male bestie 👦**\n\n"
-        "Neeche buttons se select karo ya Male / Female likh kar bhejo:",
-        reply_markup=get_gender_keyboard(),
+        message
     )
 
 
@@ -389,8 +401,8 @@ async def gender_command(
 ):
     await update.message.reply_text(
         "Apna gender choose karo:\n\n"
-        "👨 **Male** — Bot will talk like a **Female bestie 👧**\n"
-        "👩 **Female** — Bot will talk like a **Male bestie 👦**",
+        "👨 **Male** — Bot will talk like Female 👧\n"
+        "👩 **Female** — Bot will talk like Male 👦",
         reply_markup=get_gender_keyboard(),
     )
 
@@ -418,10 +430,9 @@ async def help_command(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
-    message = """
-💬 CHAT & MEDIA
+    message = """💬 CHAT & MEDIA
 
-/start — bot start karo 👋
+/baate_kare — chlo baat krte h 👋
 /gender — apna gender change karo (Male/Female) 👥
 /pic — meri photo dekho 📸
 /voice — meri voice note suno 🎙️
@@ -760,8 +771,8 @@ async def baate(
     if user_id not in user_personas:
         await update.message.reply_text(
             "Heyyy! 👋 Pehle apna gender choose karo:\n\n"
-            "👨 **Male** — Bot will talk like a **Female bestie 👧**\n"
-            "👩 **Female** — Bot will talk like a **Male bestie 👦**",
+            "👨 **Male** — Bot will talk like Female 👧\n"
+            "👩 **Female** — Bot will talk like Male 👦",
             reply_markup=get_gender_keyboard(),
         )
         return
@@ -833,8 +844,8 @@ async def chat(
     if user_id not in user_personas:
         await update.message.reply_text(
             "Heyyy! 👋 Pehle apna gender choose karo:\n\n"
-            "👨 **Male** — Bot will talk like a **Female bestie 👧**\n"
-            "👩 **Female** — Bot will talk like a **Male bestie 👦**",
+            "👨 **Male** — Bot will talk like Female 👧\n"
+            "👩 **Female** — Bot will talk like Male 👦",
             reply_markup=get_gender_keyboard(),
         )
         return
@@ -986,7 +997,7 @@ def main():
 
     app.add_handler(
         CommandHandler(
-            "baate",
+            ["baate_kare", "baate"],
             baate
         )
     )
