@@ -339,7 +339,7 @@ def save_persona(user_id, gender_choice):
     # Core feature rule:
     # When user chooses Male -> bot talks like Female
     # When user chooses Female -> bot talks like Male
-    persona = "female" if user_gender == "male" else "male"
+    persona = "male" if user_gender == "female" else "female"
 
     if user_personas.get(user_id) != persona:
         conversation_history[user_id] = []
@@ -400,9 +400,7 @@ async def gender_command(
     context: ContextTypes.DEFAULT_TYPE
 ):
     await update.message.reply_text(
-        "Apna gender choose karo:\n\n"
-        "👨 **Male** — Bot will talk like Female 👧\n"
-        "👩 **Female** — Bot will talk like Male 👦",
+        "Apna gender choose karo:",
         reply_markup=get_gender_keyboard(),
     )
 
@@ -770,9 +768,7 @@ async def baate(
 
     if user_id not in user_personas:
         await update.message.reply_text(
-            "Heyyy! 👋 Pehle apna gender choose karo:\n\n"
-            "👨 **Male** — Bot will talk like Female 👧\n"
-            "👩 **Female** — Bot will talk like Male 👦",
+            "Heyyy! 👋 Pehle apna gender choose karo:\n\n",
             reply_markup=get_gender_keyboard(),
         )
         return
@@ -843,9 +839,7 @@ async def chat(
 
     if user_id not in user_personas:
         await update.message.reply_text(
-            "Heyyy! 👋 Pehle apna gender choose karo:\n\n"
-            "👨 **Male** — Bot will talk like Female 👧\n"
-            "👩 **Female** — Bot will talk like Male 👦",
+            "Heyyy! 👋 Pehle apna gender choose karo:\n\n",
             reply_markup=get_gender_keyboard(),
         )
         return
