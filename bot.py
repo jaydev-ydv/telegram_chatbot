@@ -267,25 +267,30 @@ def get_conversation_history(user_id):
 
 class HealthHandler(BaseHTTPRequestHandler):
 
+    protocol_version = "HTTP/1.1"
+
+    def _send_health_response(self, send_body=True):
+        try:
+            body = b"Telegram AI Bot is running!"
+            print(
+                f"Health ping received: {self.command} {self.path}",
+                flush=True
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            if send_body:
+                self.wfile.write(body)
+        except Exception as e:
+            print(f"Health handler error: {e}", flush=True)
+
     def do_GET(self):
+        self._send_health_response(send_body=True)
 
-        print(
-            f"Health ping received: {self.path}",
-            flush=True
-        )
-
-        self.send_response(200)
-
-        self.send_header(
-            "Content-type",
-            "text/plain"
-        )
-
-        self.end_headers()
-
-        self.wfile.write(
-            b"Telegram AI Bot is running!"
-        )
+    def do_HEAD(self):
+        self._send_health_response(send_body=False)
 
     def log_message(self, format, *args):
         # Disable unnecessary HTTP logs
